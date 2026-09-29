@@ -105,26 +105,100 @@ function getHostNameAndPassV2(action, paramNum1, paramNum2) {
 
     return {hostname, username, pass, remotePath, localPath};
 }
+
+async function connectServer(hostname) {
+    const connectInfo = { host: hostname, port: 21 };
+  
+    let socket;
+  
+    return new Promise((resolve, reject) => {
+  
+        socket = net.connect(connectInfo, () => {
+            resolve(socket);
+        });
+      socket.setEncoding("utf8");
+      socket.on("error", (error) => {
+        console.error(`error: ${error}`);
+  
+        reject(error);
+      });
+    });
+  }
+
+// helper function to receive the message back from the server
+async function mesReceiveHelper(socket) {
+    return new Promise((resolve, reject) => {
+      let allData = "";
+      socket.setEncoding("utf8");
+  
+      // this go in chunks
+      function updateData(eachData) {
+        allData += eachData;
+  
+        // ftp replies end with a real \r\n (not the characters \ r \ n)
+        let containsNewLine = allData.includes("\r\n");
+  
+        // check if we encounter \r\n
+        if (containsNewLine) {
+          const message = allData.substring(0, allData.indexOf("\r\n"));
+          // remove the \r\n from the allData
+          allData = allData.slice(allData.indexOf("\r\n") + 2);
+          socket.off("data", updateData);
+  
+          // try/catch to catch error
+          try {
+            resolve(message);
+          } catch (error) {
+            reject(error);
+          }
+        }
+      }
+  
+      socket.on("data", updateData);
+    });
+  }
+
 async function main() {
     // get the params from the command line 
+    let hostname;
+    let pass;
+    let path;
+    let username;
+    let remotePath;
+    let localPath;
     const {action, paramNum1, paramNum2} = getParamsHelper();
 
     // get the hostname and pass from the paramNum1/paramNum2
     if(action === "ls" || action === "mkdir" || action === "rm" || action === "rmdir") {
-        const {hostname, pass, path, username} = getHostNameAndPassV1( paramNum1);
-        console.log(hostname, pass, path, username);
+        const parsedInfo = getHostNameAndPassV1(paramNum1);
+        hostname = parsedInfo.hostname;
+        pass = parsedInfo.pass;
+        path = parsedInfo.path;
+        username = parsedInfo.username;
     }
     // if cp and mv then need to know local + remote file
     else if(action === "cp" || action === "mv") {
-        const {hostname, username, pass, remotePath, localPath} = getHostNameAndPassV2( action,paramNum1, paramNum2);
-        console.log(hostname, pass, remotePath, localPath);
+        const parsedInfo = getHostNameAndPassV2(action, paramNum1, paramNum2);
+        hostname = parsedInfo.hostname;
+        username = parsedInfo.username;
+        pass = parsedInfo.pass;
+        remotePath = parsedInfo.remotePath;
+        localPath = parsedInfo.localPath;
     }
     else {
         console.error("the action is wrong");
     }
     
     // connect to the server
-    // const startSocket = await connectServer(hostname);
+    const startSocket = await connectServer(hostname);
+    console.log("connected to server yayyy");
+
+    // read hello message 
+    const message = await mesReceiveHelper(startSocket);
+    console.log(message);
+
+    // login to the server
+    const loginHelper = await loginToServer(startSocket, username, pass);
 }
 
 main();
