@@ -65,39 +65,45 @@ function getParamsHelper() {
 
 function getHostNameAndPassV1(paramNum1) {
     // extract each part of the url ftp://bob:s3cr3t@ftp.example.com/
-    let url;
-    let hostname;
+    let path;
+    let username;
     let pass;
+    let hostname;
 
-    hostname = paramNum1.split("ftp://")[1].split(":")[0];
+    username = paramNum1.split("ftp://")[1].split(":")[0];
     pass = paramNum1.split("ftp://")[1].split(":")[1].split("@")[0];
-    url = paramNum1.split("ftp://")[1].split("@")[1];
-
-    return {hostname, pass, url};
+    // path is everything that comes after the hostname
+    path = "/" + paramNum1.split("ftp://")[1].split("@")[1].split("/").slice(1).join("/");
+    hostname = paramNum1.split("ftp://")[1].split("@")[1].split("/")[0];
+    return {username, pass, path, hostname};
 }
 
 function getHostNameAndPassV2(action, paramNum1, paramNum2) {
     // extract each part of the url ftp://bob:s3cr3t@ftp.example.com/file1 file2
     let hostname;
+    let username;
     let pass;
     let remoteFile;
     let localFile;
+    let localPath;
+    let remotePath;
 
-    // determine remote and local file paths
-        if(paramNum1.includes("ftp://")) {
-            remoteFile = paramNum1.split("ftp://")[1].split("@")[1];
-            localFile = paramNum2;
-        }
-        else {
-            remoteFile = paramNum2;
-            localFile = paramNum1;
-        }
+    // keep the full ftp url in remoteFile so the splits below still work for upload and download
+    if (paramNum1.includes("ftp://")) {
+        remoteFile = paramNum1;
+        localFile = paramNum2;
+    } else {
+        remoteFile = paramNum2;
+        localFile = paramNum1;
+    }
 
-    hostname = remoteFile.split("ftp://")[1].split(":")[0];
+    localPath = localFile;
+    username = remoteFile.split("ftp://")[1].split(":")[0];
     pass = remoteFile.split("ftp://")[1].split(":")[1].split("@")[0];
-    url = remoteFile.split("ftp://")[1].split("@")[1];
+    remotePath = "/" + remoteFile.split("ftp://")[1].split("@")[1].split("/").slice(1).join("/");
+    hostname = remoteFile.split("ftp://")[1].split("@")[1].split("/")[0];
 
-    return {hostname, pass, url, remoteFile, localFile};
+    return {hostname, username, pass, remotePath, localPath};
 }
 async function main() {
     // get the params from the command line 
@@ -105,13 +111,13 @@ async function main() {
 
     // get the hostname and pass from the paramNum1/paramNum2
     if(action === "ls" || action === "mkdir" || action === "rm" || action === "rmdir") {
-        const {hostname, pass, url} = getHostNameAndPassV1( paramNum1);
-        console.log(hostname, pass, url);
+        const {hostname, pass, path, username} = getHostNameAndPassV1( paramNum1);
+        console.log(hostname, pass, path, username);
     }
     // if cp and mv then need to know local + remote file
     else if(action === "cp" || action === "mv") {
-        const {hostname, pass, url, remoteFile, localFile} = getHostNameAndPassV2( action,paramNum1, paramNum2);
-        console.log(hostname, pass, url, remoteFile, localFile);
+        const {hostname, username, pass, remotePath, localPath} = getHostNameAndPassV2( action,paramNum1, paramNum2);
+        console.log(hostname, pass, remotePath, localPath);
     }
     else {
         console.error("the action is wrong");
