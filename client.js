@@ -106,8 +106,12 @@ function getHostNameAndPassV2(action, paramNum1, paramNum2) {
     return {hostname, username, pass, remotePath, localPath};
 }
 
-async function connectServer(hostname) {
-    const connectInfo = { host: hostname, port: 21 };
+async function connectServer(hostname, portNumber) {
+    // control channel uses 21. data channel uses the PASV port
+    if (portNumber === undefined) {
+      portNumber = 21;
+    }
+    const connectInfo = { host: hostname, port: portNumber };
   
     let socket;
   
@@ -116,7 +120,10 @@ async function connectServer(hostname) {
         socket = net.connect(connectInfo, () => {
             resolve(socket);
         });
-      socket.setEncoding("utf8");
+      // only the control channel is text. data channel is raw bytes (listing / files)
+      if (portNumber === 21) {
+        socket.setEncoding("utf8");
+      }
       socket.on("error", (error) => {
         console.error(`error: ${error}`);
   
@@ -157,6 +164,112 @@ async function mesReceiveHelper(socket) {
       socket.on("data", updateData);
     });
   }
+
+  async function sendTypeModeStruCommand(socket, command) {
+    socket.write(command + "\r\n");
+    const message = await mesReceiveHelper(socket);
+    console.log(message);
+}
+
+async function loginToServer(socket, username, pass) {
+    // send the USER command
+    socket.write("USER " + username + "\r\n");
+    const message = await mesReceiveHelper(socket);
+    console.log(message);
+
+    if(message.includes("331")) {
+        //check if there is pass
+        if(pass !== "") {
+            socket.write("PASS " + pass + "\r\n");
+            const message = await mesReceiveHelper(socket);
+            console.log(message);
+        }
+    }
+    // send TYPE I\r\n / MODE S\r\n and STRU F\r\n commands
+    await sendTypeModeStruCommand(socket, "TYPE I");
+    await sendTypeModeStruCommand(socket, "MODE S");
+    await sendTypeModeStruCommand(socket, "STRU F");
+    
+    return socket;
+}   
+
+async function executeMkdirCommand(socket, path) {
+    socket.write("MKD " + path + "\r\n");
+    const message = await mesReceiveHelper(socket);
+    console.log(message);
+}
+
+async function executeRmCommand(socket, path) {
+    socket.write("DELE " + path + "\r\n");
+    const message = await mesReceiveHelper(socket);
+    console.log(message);
+}
+
+async function executeRmdirCommand(socket, path) {
+    socket.write("RMD " + path + "\r\n");
+    const message = await mesReceiveHelper(socket);
+    console.log(message);
+}
+
+// helper to parse the PASV info
+function parsePASVInfoHelper(message) {
+    const numberList = message.split("(")[1].split(")")[0].split(",");
+    let firstFour = "";
+    for(let i = 0; i < 4; i++) {
+        firstFour += numberList[i] + ".";
+    }
+    //drop the last dot
+    firstFour = firstFour.slice(0, -1);
+    
+    // last two numbers are the port
+    const lastTwo = Number(numberList[4]) * 256 + Number(numberList[5]);
+    return {ip: firstFour, portNum: lastTwo};
+}
+
+async function createPASVServer(socket) {
+    socket.write("PASV\r\n");
+    const message = await mesReceiveHelper(socket);
+
+    const {ip, portNum} = parsePASVInfoHelper(message);
+    console.log(ip, portNum);
+    // now connect 2nd socket to the pasv server
+    const pasvSocket = await connectServer(ip, portNum);
+    return pasvSocket;
+}
+
+async function dataChannelReadHelper(dataSocket) {
+
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+      dataSocket.on("data", (eachData) => {
+        // keep adding the data
+        chunks.push(eachData);
+      });
+      dataSocket.on("end", () => {
+        resolve(Buffer.concat(chunks));
+      });
+
+      dataSocket.on("error", (error) => {
+        console.error(`somthing wrong with the data channel: ${error}`);
+
+        reject(error);
+      });
+    });
+}
+
+async function executeLsCommand(socket, path) {
+    // open a data channel first
+    const dataSocket = await createPASVServer(socket);
+    // send LIST in the control channel
+    socket.write("LIST " + path + "\r\n");
+    const startMessage = await mesReceiveHelper(socket);
+    console.log(startMessage);
+    // read the info from the data channel
+    const info = await dataChannelReadHelper(dataSocket);
+    const doneMessage = await mesReceiveHelper(socket);
+    console.log(doneMessage);
+    process.stdout.write(info.toString("utf8"));
+}
 
 async function main() {
     // get the params from the command line 
@@ -199,6 +312,34 @@ async function main() {
 
     // login to the server
     const loginHelper = await loginToServer(startSocket, username, pass);
+
+    // if mkdir
+    if(action === "mkdir") {
+         await executeMkdirCommand(startSocket, path);
+    }
+    // if rm
+    else if(action === "rm") {
+        await executeRmCommand(startSocket, path);
+    }
+    // if rmdir
+    else if(action === "rmdir") {
+        await executeRmdirCommand(startSocket, path);
+    }
+    // if ls (also need to use PASV commands to open a data channel)
+    else if(action === "ls") {
+        await executeLsCommand(startSocket, path);
+    }
+    // if cp, i will need to open a data channel first then send the RETR command
+    else if(action === "cp") {
+        await executeCpCommand(startSocket, remotePath, localPath);
+    }
+    // if mv
+    else if(action === "mv") {
+        await executeMvCommand(startSocket, remotePath, localPath);
+    }
+
+    await sendTypeModeStruCommand(startSocket, "QUIT");
+    startSocket.end();
 }
 
 main();
