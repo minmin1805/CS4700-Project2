@@ -142,10 +142,10 @@ async function mesReceiveHelper(socket) {
       function updateData(eachData) {
         allData += eachData;
   
-        // ftp replies end with a real \r\n (not the characters \ r \ n)
+        // ftp replies end with \r\n
         let containsNewLine = allData.includes("\r\n");
   
-        // check if we encounter \r\n
+        // check if we have \r\n if not then keep adding the data
         if (containsNewLine) {
           const message = allData.substring(0, allData.indexOf("\r\n"));
           // remove the \r\n from the allData
@@ -257,10 +257,25 @@ async function dataChannelReadHelper(dataSocket) {
     });
 }
 
+async function dataChannelWriteHelper(dataSocket, fileData) {
+    return new Promise((resolve, reject) => {
+
+      //if there is error then reject
+      dataSocket.on("error", (error) => {
+        console.error(`somthing wrong with the data channel: ${error}`);
+        reject(error);
+      });
+      //if the data sent then close the data socket
+      dataSocket.end(fileData, () => {
+        resolve();
+      });
+    });
+}
+
 async function executeLsCommand(socket, path) {
     // open a data channel first
     const dataSocket = await createPASVServer(socket);
-    // send LIST in the control channel
+    //send LIST command
     socket.write("LIST " + path + "\r\n");
     const startMessage = await mesReceiveHelper(socket);
     console.log(startMessage);
@@ -271,6 +286,72 @@ async function executeLsCommand(socket, path) {
     process.stdout.write(info.toString("utf8"));
 }
 
+async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
+    // open data channel
+    const dataSocket = await createPASVServer(socket);
+
+    if (downloadOrNot) {
+        // if we download then send RETR command
+        socket.write("RETR " + remotePath + "\r\n");
+        const startMessage = await mesReceiveHelper(socket);
+        console.log(startMessage);
+
+        const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
+        //write the data to the local file
+        fs.writeFileSync(localPath, dataFromRemoteFile);
+        const doneMessage = await mesReceiveHelper(socket);
+        console.log(doneMessage);
+    } else {
+        // if local file is source then send STOR command
+        const localFileData = fs.readFileSync(localPath);
+        socket.write("STOR " + remotePath + "\r\n");
+        const startMessage = await mesReceiveHelper(socket);
+        console.log(startMessage);
+
+        await dataChannelWriteHelper(dataSocket, localFileData);
+        const doneMessage = await mesReceiveHelper(socket);
+        console.log(doneMessage);
+    }
+}
+
+async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
+    //open data channel
+    const dataSocket = await createPASVServer(socket);
+
+    if (downloadOrNot) {
+        // download first
+        socket.write("RETR " + remotePath + "\r\n");
+        const startMessage = await mesReceiveHelper(socket);
+        console.log(startMessage);
+
+        const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
+        // write the data to local file
+        fs.writeFileSync(localPath, dataFromRemoteFile);
+        const doneMessage = await mesReceiveHelper(socket);
+        console.log(doneMessage);
+
+        //if source is remote then now delete it
+        socket.write("DELE " + remotePath + "\r\n");
+        const deleteMessage = await mesReceiveHelper(socket);
+        console.log(deleteMessage);
+    } else {
+        //upload first
+        const localFileData = fs.readFileSync(localPath);
+        socket.write("STOR " + remotePath + "\r\n");
+        const startMessage = await mesReceiveHelper(socket);
+        console.log(startMessage);
+
+        await dataChannelWriteHelper(dataSocket, localFileData);
+        const doneMessage = await mesReceiveHelper(socket);
+        console.log(doneMessage);
+
+        //if source is local then now delete it
+        fs.unlinkSync(localPath);
+    }
+}
+
+
+
 async function main() {
     // get the params from the command line 
     let hostname;
@@ -279,6 +360,7 @@ async function main() {
     let username;
     let remotePath;
     let localPath;
+    let downloadOrNot;
     const {action, paramNum1, paramNum2} = getParamsHelper();
 
     // get the hostname and pass from the paramNum1/paramNum2
@@ -297,6 +379,8 @@ async function main() {
         pass = parsedInfo.pass;
         remotePath = parsedInfo.remotePath;
         localPath = parsedInfo.localPath;
+        //check if we download or upload
+        downloadOrNot = paramNum1.includes("ftp://");
     }
     else {
         console.error("the action is wrong");
@@ -325,17 +409,17 @@ async function main() {
     else if(action === "rmdir") {
         await executeRmdirCommand(startSocket, path);
     }
-    // if ls (also need to use PASV commands to open a data channel)
+    // if ls (open data channel)
     else if(action === "ls") {
         await executeLsCommand(startSocket, path);
     }
-    // if cp, i will need to open a data channel first then send the RETR command
+    // if cp (then open data channel + then send RETR)
     else if(action === "cp") {
-        await executeCpCommand(startSocket, remotePath, localPath);
+        await executeCpCommand(startSocket, remotePath, localPath, downloadOrNot);
     }
     // if mv
     else if(action === "mv") {
-        await executeMvCommand(startSocket, remotePath, localPath);
+        await executeMvCommand(startSocket, remotePath, localPath, downloadOrNot);
     }
 
     await sendTypeModeStruCommand(startSocket, "QUIT");
