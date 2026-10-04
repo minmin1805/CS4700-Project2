@@ -1,4 +1,4 @@
 .PHONY: all
 
 all:
-	chmod +x client
+	chmod +x 4700ftp

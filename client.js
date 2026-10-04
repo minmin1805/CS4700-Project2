@@ -15,6 +15,7 @@ STORE, RETR, and DELE. Complete your client by adding support for file upload, d
 Double check that your client works successfully on a Khoury Linux machine, e.g., login.ccs.neu.edu
 */
 
+// helper function to get the params from the command line
 function getParamsHelper() {
     const commandInput = process.argv.slice(2);
     // form of the command is $ ./4700ftp [operation] [param1] [param2]
@@ -70,14 +71,16 @@ function getHostNameAndPassV1(paramNum1) {
     let pass;
     let hostname;
 
+    // first thing after the ftp://
     username = paramNum1.split("ftp://")[1].split(":")[0];
     pass = paramNum1.split("ftp://")[1].split(":")[1].split("@")[0];
-    // path is everything that comes after the hostname
+    // path is stuff that comes after ftp://bob:s3cr3t@
     path = "/" + paramNum1.split("ftp://")[1].split("@")[1].split("/").slice(1).join("/");
     hostname = paramNum1.split("ftp://")[1].split("@")[1].split("/")[0];
     return {username, pass, path, hostname};
 }
 
+// helper function to get the hostname, username, pass, remotePath, and localPath
 function getHostNameAndPassV2(action, paramNum1, paramNum2) {
     // extract each part of the url ftp://bob:s3cr3t@ftp.example.com/file1 file2
     let hostname;
@@ -98,14 +101,17 @@ function getHostNameAndPassV2(action, paramNum1, paramNum2) {
     }
 
     localPath = localFile;
+    // first thing after the ftp://
     username = remoteFile.split("ftp://")[1].split(":")[0];
     pass = remoteFile.split("ftp://")[1].split(":")[1].split("@")[0];
+    // add "/" + stuff that comes after ftp://bob:s3cr3t@ftp.example.com/
     remotePath = "/" + remoteFile.split("ftp://")[1].split("@")[1].split("/").slice(1).join("/");
     hostname = remoteFile.split("ftp://")[1].split("@")[1].split("/")[0];
 
     return {hostname, username, pass, remotePath, localPath};
 }
 
+// helper function thats help to connect to server
 async function connectServer(hostname, portNumber) {
     // control channel uses 21. data channel uses the PASV port
     if (portNumber === undefined) {
@@ -165,12 +171,14 @@ async function mesReceiveHelper(socket) {
     });
   }
 
-  async function sendTypeModeStruCommand(socket, command) {
+// helper function that send the TYPE, MODE, and STRU commands
+async function sendTypeModeStruCommand(socket, command) {
     socket.write(command + "\r\n");
     const message = await mesReceiveHelper(socket);
     console.log(message);
 }
 
+//helper function that helps login to the server
 async function loginToServer(socket, username, pass) {
     // send the USER command
     socket.write("USER " + username + "\r\n");
@@ -193,18 +201,21 @@ async function loginToServer(socket, username, pass) {
     return socket;
 }   
 
+// helper function to execute the MKD command
 async function executeMkdirCommand(socket, path) {
     socket.write("MKD " + path + "\r\n");
     const message = await mesReceiveHelper(socket);
     console.log(message);
 }
 
+// helper function to execute the RM command
 async function executeRmCommand(socket, path) {
     socket.write("DELE " + path + "\r\n");
     const message = await mesReceiveHelper(socket);
     console.log(message);
 }
 
+// helper function to execute the RMD command
 async function executeRmdirCommand(socket, path) {
     socket.write("RMD " + path + "\r\n");
     const message = await mesReceiveHelper(socket);
@@ -226,6 +237,7 @@ function parsePASVInfoHelper(message) {
     return {ip: firstFour, portNum: lastTwo};
 }
 
+// helper function to create the PASV server
 async function createPASVServer(socket) {
     socket.write("PASV\r\n");
     const message = await mesReceiveHelper(socket);
@@ -237,6 +249,7 @@ async function createPASVServer(socket) {
     return pasvSocket;
 }
 
+// helper function to read the data from data channel
 async function dataChannelReadHelper(dataSocket) {
 
     return new Promise((resolve, reject) => {
@@ -249,6 +262,7 @@ async function dataChannelReadHelper(dataSocket) {
         resolve(Buffer.concat(chunks));
       });
 
+      // if got error then reject
       dataSocket.on("error", (error) => {
         console.error(`somthing wrong with the data channel: ${error}`);
 
@@ -257,6 +271,7 @@ async function dataChannelReadHelper(dataSocket) {
     });
 }
 
+// helper function to write the data to data channel
 async function dataChannelWriteHelper(dataSocket, fileData) {
     return new Promise((resolve, reject) => {
 
@@ -272,6 +287,7 @@ async function dataChannelWriteHelper(dataSocket, fileData) {
     });
 }
 
+// helper function to send the LS command to the server
 async function executeLsCommand(socket, path) {
     // open a data channel first
     const dataSocket = await createPASVServer(socket);
@@ -286,6 +302,7 @@ async function executeLsCommand(socket, path) {
     process.stdout.write(info.toString("utf8"));
 }
 
+// helper function to execute the CP command
 async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
     // open data channel
     const dataSocket = await createPASVServer(socket);
@@ -314,6 +331,7 @@ async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
     }
 }
 
+// helper function to execute the MV command
 async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
     //open data channel
     const dataSocket = await createPASVServer(socket);
@@ -350,8 +368,7 @@ async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
     }
 }
 
-
-
+// main function which will run when the program first starts
 async function main() {
     // get the params from the command line 
     let hostname;
@@ -422,6 +439,7 @@ async function main() {
         await executeMvCommand(startSocket, remotePath, localPath, downloadOrNot);
     }
 
+    //if reach here we send QUIT command
     await sendTypeModeStruCommand(startSocket, "QUIT");
     startSocket.end();
 }
