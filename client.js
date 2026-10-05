@@ -1,19 +1,8 @@
+// these are the libraries I used
 const net = require("net");
 const path = require("path");
 const fs = require("fs");
 
-
-/*
-Suggested Implementation Approach
-When starting work on this project, we recommend implementing the required functionality in the following order.
-
-Command Line Parsing. Start by writing a program that successfully implements the required command line syntax and can parse the incoming data, e.g., FTP URLs.
-Connection Establishment. Add support for connecting and logging-in to an FTP server. This includes establishing a TCP control channel, correctly sending USER, PASS, TYPE, MODE, STRU, and QUIT commands. Print out responses from the server to confirm that each command is being received and interpreted correctly.
-MKD and RMD. Implement support for making and deleting remote directories. These commands are simpler because they do not require a data channel. Verify that your client is working by using a standard FTP client to double check the results.
-PASV and LIST. Implement support for creating a data channel, then implement the LIST command to test it.
-STORE, RETR, and DELE. Complete your client by adding support for file upload, download, and deletion. Double check your implementation by comparing it to the results from a standard FTP client.
-Double check that your client works successfully on a Khoury Linux machine, e.g., login.ccs.neu.edu
-*/
 
 // helper function to get the params from the command line
 function getParamsHelper() {
@@ -113,7 +102,7 @@ function getHostNameAndPassV2(action, paramNum1, paramNum2) {
 
 // helper function thats help to connect to server
 async function connectServer(hostname, portNumber) {
-    // control channel uses 21. data channel uses the PASV port
+    // if portNumber is undefined then use 21
     if (portNumber === undefined) {
       portNumber = 21;
     }
@@ -244,7 +233,7 @@ async function createPASVServer(socket) {
 
     const {ip, portNum} = parsePASVInfoHelper(message);
     console.log(ip, portNum);
-    // now connect 2nd socket to the pasv server
+    //create + connect the data channel socket to server
     const pasvSocket = await connectServer(ip, portNum);
     return pasvSocket;
 }
@@ -258,8 +247,9 @@ async function dataChannelReadHelper(dataSocket) {
         // keep adding the data
         chunks.push(eachData);
       });
+
       dataSocket.on("end", () => {
-        resolve(Buffer.concat(chunks));
+        resolve(chunks);
       });
 
       // if got error then reject
@@ -296,10 +286,10 @@ async function executeLsCommand(socket, path) {
     const startMessage = await mesReceiveHelper(socket);
     console.log(startMessage);
     // read the info from the data channel
-    const info = await dataChannelReadHelper(dataSocket);
+    const lsInfo = await dataChannelReadHelper(dataSocket);
     const doneMessage = await mesReceiveHelper(socket);
     console.log(doneMessage);
-    process.stdout.write(info.toString("utf8"));
+    process.stdout.write(lsInfo.toString("utf8"));
 }
 
 // helper function to execute the CP command
@@ -314,8 +304,13 @@ async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
         console.log(startMessage);
 
         const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
+        console.log(dataFromRemoteFile);
         //write the data to the local file
-        fs.writeFileSync(localPath, dataFromRemoteFile);
+        fs.writeFileSync(localPath, "");
+        //add each part of the data to the local file
+        for(let i = 0; i < dataFromRemoteFile.length; i++) {
+            fs.appendFileSync(localPath, dataFromRemoteFile[i]);
+        }
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
     } else {
@@ -337,18 +332,21 @@ async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
     const dataSocket = await createPASVServer(socket);
 
     if (downloadOrNot) {
-        // download first
+        // download first, send the RETR command
         socket.write("RETR " + remotePath + "\r\n");
         const startMessage = await mesReceiveHelper(socket);
         console.log(startMessage);
 
         const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
         // write the data to local file
-        fs.writeFileSync(localPath, dataFromRemoteFile);
+        fs.writeFileSync(localPath, "");
+        for(let i = 0; i < dataFromRemoteFile.length; i++) {
+            fs.appendFileSync(localPath, dataFromRemoteFile[i]);
+        }
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
 
-        //if source is remote then now delete it
+        //if source is remote then delete it
         socket.write("DELE " + remotePath + "\r\n");
         const deleteMessage = await mesReceiveHelper(socket);
         console.log(deleteMessage);
@@ -363,7 +361,7 @@ async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
 
-        //if source is local then now delete it
+        //delete file on local computer
         fs.unlinkSync(localPath);
     }
 }
