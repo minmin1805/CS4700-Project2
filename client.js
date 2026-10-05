@@ -115,8 +115,7 @@ async function connectServer(hostname, portNumber) {
         socket = net.connect(connectInfo, () => {
             resolve(socket);
         });
-      // only the control channel is text. data channel is raw bytes (listing / files)
-      if (portNumber === 21) {
+        if (portNumber === 21) {
         socket.setEncoding("utf8");
       }
       socket.on("error", (error) => {
@@ -249,7 +248,7 @@ async function dataChannelReadHelper(dataSocket) {
       });
 
       dataSocket.on("end", () => {
-        resolve(chunks);
+        resolve(Buffer.concat(chunks));
       });
 
       // if got error then reject
@@ -306,11 +305,7 @@ async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
         const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
         console.log(dataFromRemoteFile);
         //write the data to the local file
-        fs.writeFileSync(localPath, "");
-        //add each part of the data to the local file
-        for(let i = 0; i < dataFromRemoteFile.length; i++) {
-            fs.appendFileSync(localPath, dataFromRemoteFile[i]);
-        }
+        fs.writeFileSync(localPath, dataFromRemoteFile);
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
     } else {
@@ -339,10 +334,7 @@ async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
 
         const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
         // write the data to local file
-        fs.writeFileSync(localPath, "");
-        for(let i = 0; i < dataFromRemoteFile.length; i++) {
-            fs.appendFileSync(localPath, dataFromRemoteFile[i]);
-        }
+        fs.writeFileSync(localPath, dataFromRemoteFile);
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
 

@@ -15,10 +15,7 @@
 
 **Resources I used**
 https://www.geeksforgeeks.org/node-js/node-js-fs-writefilesync-method/
--> I studied this source to learn how to write buffers to files on my local computer.
+-> I used this source to know how to write buffers to files on my local computer.
 
 https://nodejs.org/api/stream.html#event-end
 -> I used this documentation, specifically the section “Event: 'end’”, to write a helper to receive data from a data channel socket.
-
-https://www.reddit.com/r/node/comments/djzznr/how_to_append_to_a_file_an_array_of_strings_while/
--> I tried studying this to learn how to append parts of a buffer when they are in an array.
