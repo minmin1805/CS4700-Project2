@@ -7,12 +7,12 @@ const fs = require("fs");
 // helper function to get the params from the command line
 function getParamsHelper() {
     const commandInput = process.argv.slice(2);
-    // form of the command is $ ./4700ftp [operation] [param1] [param2]
+    //these are the variables to store params
     let paramNum1;
     let paramNum2;
     let action;
 
-    // list of actions: ls, mkdir, rm, rmdir, cp, and mv
+    //these are the actions that we can execute
     // check if ls 
     if(commandInput[0] === "ls") {
         action = "ls";
@@ -54,7 +54,7 @@ function getParamsHelper() {
 }
 
 function getHostNameAndPassV1(paramNum1) {
-    // extract each part of the url ftp://bob:s3cr3t@ftp.example.com/
+    // these are the variables to store params
     let path;
     let username;
     let pass;
@@ -71,7 +71,7 @@ function getHostNameAndPassV1(paramNum1) {
 
 // helper function to get the hostname, username, pass, remotePath, and localPath
 function getHostNameAndPassV2(action, paramNum1, paramNum2) {
-    // extract each part of the url ftp://bob:s3cr3t@ftp.example.com/file1 file2
+    //these are the variables i use to store params
     let hostname;
     let username;
     let pass;
@@ -80,7 +80,7 @@ function getHostNameAndPassV2(action, paramNum1, paramNum2) {
     let localPath;
     let remotePath;
 
-    // keep the full ftp url in remoteFile so the splits below still work for upload and download
+    //detemine which is local and which is remote file
     if (paramNum1.includes("ftp://")) {
         remoteFile = paramNum1;
         localFile = paramNum2;
@@ -93,7 +93,7 @@ function getHostNameAndPassV2(action, paramNum1, paramNum2) {
     // first thing after the ftp://
     username = remoteFile.split("ftp://")[1].split(":")[0];
     pass = remoteFile.split("ftp://")[1].split(":")[1].split("@")[0];
-    // add "/" + stuff that comes after ftp://bob:s3cr3t@ftp.example.com/
+    //remote path will have format of "/" + everything that comes after ftp://bob:s3cr3t@ftp.example.com/
     remotePath = "/" + remoteFile.split("ftp://")[1].split("@")[1].split("/").slice(1).join("/");
     hostname = remoteFile.split("ftp://")[1].split("@")[1].split("/")[0];
 
@@ -238,7 +238,7 @@ async function createPASVServer(socket) {
 }
 
 // helper function to read the data from data channel
-async function dataChannelReadHelper(dataSocket) {
+async function readerForDataChannel(dataSocket) {
 
     return new Promise((resolve, reject) => {
         const chunks = [];
@@ -248,7 +248,7 @@ async function dataChannelReadHelper(dataSocket) {
       });
 
       dataSocket.on("end", () => {
-        resolve(Buffer.concat(chunks));
+        resolve(chunks);
       });
 
       // if got error then reject
@@ -261,7 +261,7 @@ async function dataChannelReadHelper(dataSocket) {
 }
 
 // helper function to write the data to data channel
-async function dataChannelWriteHelper(dataSocket, fileData) {
+async function writerForDataChannel(dataSocket, fileData) {
     return new Promise((resolve, reject) => {
 
       //if there is error then reject
@@ -280,12 +280,14 @@ async function dataChannelWriteHelper(dataSocket, fileData) {
 async function executeLsCommand(socket, path) {
     // open a data channel first
     const dataSocket = await createPASVServer(socket);
+
     //send LIST command
     socket.write("LIST " + path + "\r\n");
     const startMessage = await mesReceiveHelper(socket);
     console.log(startMessage);
+
     // read the info from the data channel
-    const lsInfo = await dataChannelReadHelper(dataSocket);
+    const lsInfo = await readerForDataChannel(dataSocket);
     const doneMessage = await mesReceiveHelper(socket);
     console.log(doneMessage);
     process.stdout.write(lsInfo.toString("utf8"));
@@ -302,10 +304,13 @@ async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
         const startMessage = await mesReceiveHelper(socket);
         console.log(startMessage);
 
-        const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
+        const dataFromRemoteFile = await readerForDataChannel(dataSocket);
         console.log(dataFromRemoteFile);
         //write the data to the local file
-        fs.writeFileSync(localPath, dataFromRemoteFile);
+        fs.writeFileSync(localPath, "");
+        for(let i = 0; i < dataFromRemoteFile.length; i++) {
+            fs.appendFileSync(localPath, dataFromRemoteFile[i]);
+        }
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
     } else {
@@ -315,7 +320,7 @@ async function executeCpCommand(socket, remotePath, localPath, downloadOrNot) {
         const startMessage = await mesReceiveHelper(socket);
         console.log(startMessage);
 
-        await dataChannelWriteHelper(dataSocket, localFileData);
+        await writerForDataChannel(dataSocket, localFileData);
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
     }
@@ -332,13 +337,16 @@ async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
         const startMessage = await mesReceiveHelper(socket);
         console.log(startMessage);
 
-        const dataFromRemoteFile = await dataChannelReadHelper(dataSocket);
+        const dataFromRemoteFile = await readerForDataChannel(dataSocket);
         // write the data to local file
-        fs.writeFileSync(localPath, dataFromRemoteFile);
+        fs.writeFileSync(localPath, "");
+        for(let i = 0; i < dataFromRemoteFile.length; i++) {
+            fs.appendFileSync(localPath, dataFromRemoteFile[i]);
+        }
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
 
-        //if source is remote then delete it
+        //if source is remote then send DELE so server can delete it
         socket.write("DELE " + remotePath + "\r\n");
         const deleteMessage = await mesReceiveHelper(socket);
         console.log(deleteMessage);
@@ -349,7 +357,7 @@ async function executeMvCommand(socket, remotePath, localPath, downloadOrNot) {
         const startMessage = await mesReceiveHelper(socket);
         console.log(startMessage);
 
-        await dataChannelWriteHelper(dataSocket, localFileData);
+        await writerForDataChannel(dataSocket, localFileData);
         const doneMessage = await mesReceiveHelper(socket);
         console.log(doneMessage);
 
